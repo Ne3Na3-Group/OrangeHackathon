@@ -36,6 +36,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Load environment variables from .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception as e:
+    logger.warning(f"Failed to load .env file: {e}")
+
 # Global state
 _current_insights: Optional[Dict[str, Any]] = None
 _current_segmentation: Optional[np.ndarray] = None

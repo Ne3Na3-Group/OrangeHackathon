@@ -1,65 +1,34 @@
 """
-Mock learning module to enable loading checkpoints that depend on the 'learning' package.
-This allows loading model weights without having the original training codebase.
+Mock modules required by training checkpoints.
+Provides a setup_learning_mock() that registers expected symbols.
 """
 
 import sys
 import types
-import torch.optim
+
+from .learning_optimizer import Ranger2020
 
 
-class MockOptimizer(torch.optim.Optimizer):
-    """Mock optimizer class for unpickling purposes"""
-    def __init__(self, params=None, *args, **kwargs):
-        if params is None:
-            params = [torch.nn.Parameter(torch.zeros(1))]
-        defaults = {'lr': 0.001}
-        super().__init__(params, defaults)
-    
-    def step(self, closure=None):
-        pass
-    
-    def __setstate__(self, state):
-        self.__dict__.update(state)
+def setup_learning_mock() -> None:
+    """Register learning.optimizer and learning.lr_scheduler modules."""
+    learning = types.ModuleType("learning")
+    learning_opt = types.ModuleType("learning.optimizer")
+    learning_sch = types.ModuleType("learning.lr_scheduler")
 
+    learning_opt.Ranger2020 = Ranger2020
 
-class MockScheduler:
-    """Mock scheduler class for unpickling purposes"""
-    def __init__(self, *args, **kwargs):
-        pass
-    
-    def __setstate__(self, state):
-        self.__dict__.update(state)
-    
-    def step(self):
-        pass
+    class DummyScheduler:
+        def __init__(self, *args, **kwargs):
+            pass
 
+        def state_dict(self):
+            return {}
 
-def setup_learning_mock():
-    """
-    Create and register mock 'learning' package in sys.modules.
-    This allows torch.load to unpickle checkpoints that reference
-    the learning package without having it installed.
-    """
-    if 'learning' in sys.modules:
-        return  # Already set up
-    
-    # Create package structure
-    learning = types.ModuleType('learning')
-    learning.__path__ = []  # Make it a package
-    
-    # Add submodules
-    submodules = ['scheduler', 'optimizer', 'trainer', 'model', 'utils', 'data', 'losses']
-    for submod in submodules:
-        mod = types.ModuleType(f'learning.{submod}')
-        setattr(learning, submod, mod)
-        sys.modules[f'learning.{submod}'] = mod
-    
-    # Add specific classes used in the checkpoint
-    learning.optimizer.Ranger2020 = MockOptimizer
-    learning.optimizer.AdamW = MockOptimizer
-    learning.scheduler.CosineAnnealingLR = MockScheduler
-    learning.scheduler.OneCycleLR = MockScheduler
-    
-    # Register the main module
-    sys.modules['learning'] = learning
+        def load_state_dict(self, state):
+            return None
+
+    learning_sch.GradualWarmupScheduler = DummyScheduler
+
+    sys.modules.setdefault("learning", learning)
+    sys.modules.setdefault("learning.optimizer", learning_opt)
+    sys.modules.setdefault("learning.lr_scheduler", learning_sch)

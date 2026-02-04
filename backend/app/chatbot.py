@@ -62,6 +62,15 @@ SYSTEM_PROMPT = """You are Ne3Na3 Safe-Bot, a helpful medical imaging assistant 
 - Be empathetic but maintain boundaries
 - Provide factual information from the analysis
 - Always end with encouragement to consult healthcare providers
+- Avoid repeating generic definitions when analysis data is available; summarize insights instead.
+
+📌 CURRENT INSIGHTS (USER-PROVIDED):
+- Whole Tumor (WT): 157.81 cm³
+- Tumor Core (TC): 85.49 cm³
+- Enhancing Tumor (ET): 48.05 cm³
+- Edema (ED): 72.31 cm³
+- Tumor Extent (3D): 59.0 mm × 90.0 mm × 70.0 mm
+- Modality Contribution: T1ce 35.8%, FLAIR 27.3%, T2 21.9%, T1 15%
 """
 
 
@@ -80,6 +89,7 @@ class SafeBot:
         self.system_prompt = SYSTEM_PROMPT
         self.insights: Optional[Dict[str, Any]] = None
         self.conversation_history: List[Dict[str, str]] = []
+        self.model_name = os.environ.get("OPENAI_MODEL", "gpt-4.1-nano")
         
         # Initialize OpenAI client if API key is available
         self.openai_client = None
@@ -90,7 +100,7 @@ class SafeBot:
             try:
                 self.openai_client = OpenAI(api_key=openai_api_key)
                 self.use_openai = True
-                logger.info("✅ OpenAI client initialized successfully")
+                logger.info(f"✅ OpenAI client initialized successfully (model: {self.model_name})")
             except Exception as e:
                 logger.warning(f"Failed to initialize OpenAI client: {e}")
         else:
@@ -260,6 +270,48 @@ The Ne3Na3 system identifies these regions:
 
 💚 *These are technical definitions. Your medical team will explain what they mean for your specific case.*"""
 
+    def _format_report_response(self) -> str:
+        """Generate a concise report from current insights"""
+        if not self.insights:
+            return "No analysis data available. Please upload and process MRI scans first."
+
+        summary = self.insights.get("summary", {})
+        regions = self.insights.get("regions", {})
+        volumes = self.insights.get("volumes", {})
+
+        wt = summary.get("total_tumor_volume_cm3", 0)
+        tc = summary.get("tumor_core_volume_cm3", 0)
+        et = summary.get("enhancing_tumor_volume_cm3", 0)
+        ed = summary.get("edema_volume_cm3", 0)
+
+        report = """🌿 **Segmentation Report**
+
+**Detection:** {detected}
+
+**Volumes (cm³):**
+- Whole Tumor (WT): {wt}
+- Tumor Core (TC): {tc}
+- Enhancing Tumor (ET): {et}
+- Edema (ED): {ed}
+""".format(
+            detected="Tumor regions detected" if summary.get("tumor_detected") else "No tumor regions detected",
+            wt=wt, tc=tc, et=et, ed=ed
+        )
+
+        if "WT" in regions and regions["WT"].get("bounding_box"):
+            bbox = regions["WT"]["bounding_box"]
+            dims = bbox.get("size_mm", [])
+            if len(dims) == 3:
+                report += f"\n**Tumor Extent (mm):** {dims[0]:.1f} × {dims[1]:.1f} × {dims[2]:.1f}\n"
+
+        if volumes:
+            report += "\n**Label Volumes (cm³):**\n"
+            for label, data in volumes.items():
+                report += f"- {label}: {data.get('volume_cm3', 0)}\n"
+
+        report += "\n💚 *This report is for research/educational use. Please consult a healthcare professional for medical interpretation.*"
+        return report
+
     def _format_insights_context(self) -> str:
         """Format current insights as context for OpenAI"""
         if not self.insights:
@@ -331,7 +383,7 @@ The Ne3Na3 system identifies these regions:
             
             # Call OpenAI API
             response = self.openai_client.chat.completions.create(
-                model="gpt-4.1-nano",  # Use gpt-4.1-nano for cost efficiency
+                model=self.model_name,
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.7
@@ -347,7 +399,15 @@ The Ne3Na3 system identifies these regions:
     def _get_rule_based_response(self, user_message: str) -> str:
         """Get rule-based response (fallback when OpenAI not available)"""
         message_lower = user_message.lower()
-        
+
+        # If insights are available and the user asks for a report/summary, prioritize it
+        if any(kw in message_lower for kw in ["report", "summary", "summarize", "analysis report"]):
+            return self._format_report_response()
+
+        # If insights are available and the user greets or asks generally, provide a brief report
+        if self.insights and any(kw in message_lower for kw in ["hello", "hi", "hey", "help", "what can you do", "overview"]):
+            return self._format_report_response()
+
         if any(kw in message_lower for kw in ["volume", "size", "measurement", "how big", "how large"]):
             return self._format_volume_response()
         elif any(kw in message_lower for kw in ["asymmetry", "symmetric", "left", "right", "side"]):
@@ -359,15 +419,12 @@ The Ne3Na3 system identifies these regions:
         elif any(kw in message_lower for kw in ["hello", "hi", "hey", "help"]):
             return """🌿 Hello! I'm Ne3Na3 Safe-Bot, your brain tumor imaging assistant.
 
-I can help you understand:
-- 📊 **Tumor volumes** - Ask about sizes and measurements
-- 📍 **Tumor regions** - NCR, ED, ET explained
-- ⚖️ **Asymmetry** - Left vs right hemisphere analysis
-- 🔬 **MRI modalities** - T1, T1ce, T2, FLAIR explained
+You can ask about:
+- 📊 **Tumor volumes**
+- 📍 **Tumor regions**
+- 🔬 **MRI modalities**
 
-What would you like to know about your segmentation results?
-
-💚 *Remember: I provide educational information only. Medical decisions should be made with your healthcare team.*"""
+💚 *I provide educational information only. For medical decisions, please consult your healthcare team.*"""
         else:
             return """🌿 I'd be happy to help explain your brain MRI segmentation results.
 

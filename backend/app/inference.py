@@ -75,8 +75,8 @@ class InferenceEngine:
             out = self._sliding_window_inference(inputs)
             outputs.append(out)
         
-        # Flip augmentations
-        flip_dims = [2, 3, 4]  # x, y, z axes
+        # Flip augmentations (height/width only)
+        flip_dims = [3, 4]
         for dim in flip_dims:
             with torch.no_grad():
                 flipped_input = torch.flip(inputs, dims=[dim])
@@ -130,8 +130,7 @@ class InferenceEngine:
         self,
         inputs: torch.Tensor,
         use_tta: bool = True,
-        enforce_consistency: bool = True,
-        brain_mask: Optional[torch.Tensor] = None
+        enforce_consistency: bool = True
     ) -> Dict[str, Any]:
         """
         Run full inference pipeline
@@ -144,7 +143,7 @@ class InferenceEngine:
         Returns:
             Dictionary containing:
             - segmentation: Final segmentation mask with BraTS labels (0=BG, 1=NCR, 2=ED, 4=ET)
-            - probabilities: Softmax probabilities for each class channel (NCR, ED, ET)
+            - probabilities: Sigmoid probabilities for each region channel (TC, WT, ET)
             - attention_maps: Attention maps from decoder blocks
         """
         inputs = inputs.to(self.device)
@@ -158,31 +157,31 @@ class InferenceEngine:
             with torch.no_grad():
                 logits = self._sliding_window_inference(inputs)
         
-        # Model outputs 3 channels representing EXCLUSIVE classes:
-        # Channel 0: NCR (label 1)
-        # Channel 1: ED  (label 2)
-        # Channel 2: ET  (label 4)
-        # Use SOFTMAX since classes are mutually exclusive
-        probabilities = torch.softmax(logits, dim=1)  # [B, 3, D, H, W]
+        # Model outputs 3 channels representing REGIONS (not exclusive classes):
+        # Channel 0: TC (Tumor Core) = NCR + ET (labels 1, 4)
+        # Channel 1: WT (Whole Tumor) = NCR + ED + ET (labels 1, 2, 4)
+        # Channel 2: ET (Enhancing Tumor) = label 4 only
+        # Use SIGMOID since regions overlap hierarchically: ET ⊂ TC ⊂ WT
+        probabilities = torch.sigmoid(logits)  # [B, 3, D, H, W]
 
-        # Argmax to get class index per voxel (0,1,2)
-        class_map = torch.argmax(probabilities, dim=1)  # [B, D, H, W]
-        max_prob = torch.max(probabilities, dim=1).values
+        threshold = 0.5
+        tc_mask = (probabilities[:, 0, :, :, :] > threshold)  # Tumor Core
+        wt_mask = (probabilities[:, 1, :, :, :] > threshold)  # Whole Tumor
+        et_mask = (probabilities[:, 2, :, :, :] > threshold)  # Enhancing Tumor
 
-        # Brain mask from inputs if not provided: any modality > 0
-        if brain_mask is None:
-            brain_mask = (inputs > 0).any(dim=1)
+        # Enforce hierarchical consistency: ET ⊂ TC ⊂ WT
+        tc_mask = tc_mask | et_mask
+        wt_mask = wt_mask | tc_mask
 
-        # Map class indices to BraTS labels: 0->1 (NCR), 1->2 (ED), 2->4 (ET)
-        segmentation = torch.zeros_like(class_map, dtype=torch.long)
-        segmentation[class_map == 0] = 1
-        segmentation[class_map == 1] = 2
-        segmentation[class_map == 2] = 4
-
-        # Apply background mask: low confidence or outside brain
-        confidence_threshold = 0.5
-        background_mask = (max_prob < confidence_threshold) | (~brain_mask)
-        segmentation[background_mask] = 0
+        # Convert regions to BraTS labels:
+        # Label 4 (ET): Enhancing Tumor = ET mask
+        # Label 1 (NCR): Necrotic Core = TC AND NOT ET
+        # Label 2 (ED): Edema = WT AND NOT TC
+        # Label 0: Background = NOT WT
+        segmentation = torch.zeros_like(wt_mask, dtype=torch.long)
+        segmentation[wt_mask & ~tc_mask] = 2  # ED
+        segmentation[tc_mask & ~et_mask] = 1  # NCR
+        segmentation[et_mask] = 4             # ET
         
         # Enforce anatomical consistency
         if enforce_consistency:
@@ -220,10 +219,8 @@ class InferenceEngine:
         Returns:
             Inference results dictionary
         """
-        # Stack modalities: [D, H, W] -> [4, D, H, W]
-        stacked = np.stack([t1, t1ce, t2, flair], axis=0)
-        # Brain mask from raw inputs (before normalization)
-        brain_mask = (stacked > 0).any(axis=0)
+        # Stack modalities in training order: [flair, t1, t1ce, t2]
+        stacked = np.stack([flair, t1, t1ce, t2], axis=0)
         
         # Normalize each modality
         stacked = self._normalize(stacked)
@@ -231,31 +228,28 @@ class InferenceEngine:
         # Add batch dimension: [1, 4, D, H, W]
         inputs = torch.from_numpy(stacked).unsqueeze(0).float()
         
-        return self.predict(
-            inputs,
-            use_tta=use_tta,
-            enforce_consistency=enforce_consistency,
-            brain_mask=torch.from_numpy(brain_mask).unsqueeze(0).to(self.device)
-        )
+        return self.predict(inputs, use_tta=use_tta, enforce_consistency=enforce_consistency)
     
     def _normalize(self, data: np.ndarray) -> np.ndarray:
-        """Z-score normalization per modality with brain mask"""
+        """Z-score normalization per modality with brain mask (from FLAIR channel)"""
         normalized = np.zeros_like(data, dtype=np.float32)
-        
+
+        brain_mask = data[0] > 0
+
         for i in range(data.shape[0]):
             modality = data[i]
-            mask = modality > 0  # Brain mask
-            
-            if mask.sum() > 0:
-                mean = modality[mask].mean()
-                std = modality[mask].std()
+
+            if brain_mask.sum() > 0:
+                mean = modality[brain_mask].mean()
+                std = modality[brain_mask].std()
                 if std > 0:
                     normalized[i] = (modality - mean) / std
                 else:
                     normalized[i] = modality - mean
+                normalized[i][~brain_mask] = 0
             else:
                 normalized[i] = modality
-        
+
         return normalized
 
 
