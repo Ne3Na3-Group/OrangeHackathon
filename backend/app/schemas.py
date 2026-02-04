@@ -86,6 +86,8 @@ class SegmentationResponse(BaseModel):
     processing_time_seconds: float
     insights: Optional[InsightsResponse] = None
     segmentation_shape: Optional[List[int]] = None
+    segmentation_values: Optional[List[int]] = None
+    mask_downsample: Optional[int] = None
 
 
 # ==================== Chatbot ====================

@@ -331,7 +331,7 @@ The Ne3Na3 system identifies these regions:
             
             # Call OpenAI API
             response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",  # Use gpt-4o-mini for cost efficiency
+                model="gpt-4.1-nano",  # Use gpt-4.1-nano for cost efficiency
                 messages=messages,
                 max_tokens=1000,
                 temperature=0.7

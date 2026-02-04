@@ -20,9 +20,11 @@
 - [Overview](#-overview)
 - [Architecture](#-architecture)
 - [Features](#-features)
+- [Recent Updates](#-recent-updates)
 - [Installation](#-installation)
 - [Usage](#-usage)
 - [API Reference](#-api-reference)
+- [3D Visualization](#-3d-visualization)
 - [Safety & Ethics](#-safety--ethics)
 
 ---
@@ -31,9 +33,9 @@
 
 **Ne3Na3** is a cutting-edge medical AI system for multi-modal brain tumor segmentation using the BraTS dataset format. It processes four MRI modalities (T1, T1ce, T2, FLAIR) and outputs multi-class segmentation masks for:
 
-- **NCR** - Necrotic Core
-- **ED** - Peritumoral Edema  
-- **ET** - Enhancing Tumor
+- **NCR** - Necrotic Core (Red)
+- **ED** - Peritumoral Edema (Green)
+- **ET** - Enhancing Tumor (Blue)
 
 ### Tumor Regions
 
@@ -42,6 +44,37 @@
 | **WT** (Whole Tumor) | Complete tumor extent | NCR + ED + ET |
 | **TC** (Tumor Core) | Solid tumor mass | NCR + ET |
 | **ET** (Enhancing Tumor) | Active tumor | ET only |
+
+---
+
+## 🆕 Recent Updates
+
+### Version 2.0 - February 2026
+
+#### 🖼️ 3D Visualization System
+- **Orthogonal Slice Viewer**: Interactive axial, sagittal, and coronal views
+- **Real-time Overlay**: Tumor segmentation overlay on MRI slices with adjustable opacity
+- **Slice Animation**: Auto-play through slices with keyboard controls
+- **Multi-modality Support**: Switch between T1, T1ce, T2, FLAIR modalities
+- **Dimension Handling**: Robust overlay rendering that handles dimension mismatches
+
+#### 📊 Volume API Endpoints
+- `GET /api/volume/mri` - Fetch downsampled MRI volume data
+- `GET /api/volume/segmentation` - Fetch segmentation mask volume
+- `GET /api/volume/slice` - Fetch individual 2D slices
+- `GET /api/volume/available` - Check data availability
+
+#### 🤖 OpenAI-Powered SafeBot
+- **GPT-4o-mini Integration**: Context-aware responses about analysis results
+- **Safety Guardrails**: Refuses diagnosis/treatment advice
+- **Insights Context**: Automatically includes tumor volumes and analysis in conversation
+- **Rule-based Fallback**: Works without API key using predefined responses
+
+#### 🔧 Technical Improvements
+- **Vectorized Demo Generation**: Fast synthetic tumor data generation using NumPy
+- **JSON Serialization Fix**: Proper numpy to Python type conversion
+- **CORS Configuration**: Full cross-origin support for frontend-backend communication
+- **Slice Extraction**: Correct anatomical orientation for all viewing planes
 
 ---
 
@@ -233,6 +266,21 @@ npm run preview
 - **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
 
+### Environment Variables
+
+Create a `.env` file in the `backend/` directory:
+
+```bash
+# OpenAI API Key (optional - enables AI-powered chatbot)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Server Configuration (optional)
+HOST=0.0.0.0
+PORT=8000
+```
+
+Without `OPENAI_API_KEY`, the SafeBot will use rule-based responses.
+
 ---
 
 ## 📡 API Reference
@@ -273,6 +321,24 @@ Content-Type: application/json
 ### Run Demo
 ```http
 POST /api/demo
+```
+
+### Volume Endpoints (3D Visualization)
+```http
+GET /api/volume/available
+# Check if volume data is available
+
+GET /api/volume/mri?modality=t1ce&downsample=2
+# Get downsampled MRI volume
+# modality: t1, t1ce, t2, flair
+# downsample: factor (2 = half resolution)
+
+GET /api/volume/segmentation?downsample=2
+# Get segmentation mask volume
+
+GET /api/volume/slice?axis=axial&slice_idx=50&modality=t1ce
+# Get single 2D slice
+# axis: axial, sagittal, coronal
 ```
 
 ---
@@ -317,6 +383,41 @@ You are Ne3Na3 Safe-Bot, a helpful medical imaging assistant.
 
 ---
 
+## 🖼️ 3D Visualization
+
+The 3D Visualization page provides interactive exploration of brain MRI volumes and tumor segmentation:
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Orthogonal Views** | Axial, Sagittal, and Coronal slice views |
+| **Segmentation Overlay** | Color-coded tumor regions on MRI |
+| **Slice Navigation** | Slider and keyboard controls |
+| **Modality Switching** | T1, T1ce, T2, FLAIR options |
+| **Opacity Control** | Adjust overlay transparency |
+| **Animation** | Auto-play through slices |
+
+### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Space` | Play/Pause animation |
+| `←` `→` | Previous/Next slice |
+| `A` `S` `C` | Switch axis (Axial/Sagittal/Coronal) |
+| `O` | Toggle overlay |
+| `+` `-` | Zoom in/out |
+
+### Color Legend
+
+| Color | Region | Description |
+|-------|--------|-------------|
+| 🔴 Red | NCR | Necrotic Core |
+| 🟢 Green | ED | Peritumoral Edema |
+| 🔵 Blue | ET | Enhancing Tumor |
+
+---
+
 ## 🎨 Design System
 
 ### Color Palette
@@ -344,16 +445,17 @@ ne3na3/
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI application
+│   │   ├── main.py              # FastAPI application + Volume endpoints
 │   │   ├── inference.py         # Inference engine
 │   │   ├── insights.py          # Metrics computation
-│   │   ├── chatbot.py           # Safe-Bot implementation
+│   │   ├── chatbot.py           # Safe-Bot with OpenAI integration
 │   │   ├── schemas.py           # Pydantic models
 │   │   └── models/
 │   │       ├── __init__.py
 │   │       ├── attunet.py       # AttUnet architecture
 │   │       └── model_loader.py  # Weight loading logic
 │   ├── model_weights/           # Place .pth files here
+│   ├── .env.example             # Environment variables template
 │   └── requirements.txt
 │
 ├── frontend/
@@ -361,22 +463,28 @@ ne3na3/
 │   │   └── ne3na3-icon.svg
 │   ├── src/
 │   │   ├── main.jsx
-│   │   ├── App.jsx              # Main application
+│   │   ├── App.jsx              # Main application with routing
 │   │   ├── index.css            # Global styles
 │   │   ├── components/
 │   │   │   ├── FileUploadZone.jsx
 │   │   │   ├── InsightsPanel.jsx
 │   │   │   ├── SafeBot.jsx
+│   │   │   ├── Visualization3D.jsx  # 3D slice viewer
 │   │   │   ├── ProcessingOverlay.jsx
 │   │   │   └── ExplainabilityPanel.jsx
+│   │   ├── pages/
+│   │   │   ├── Home.jsx
+│   │   │   ├── Visualization3DPage.jsx
+│   │   │   └── About.jsx
 │   │   └── services/
-│   │       └── api.js           # API client
+│   │       └── api.js           # API client with volume endpoints
 │   ├── index.html
 │   ├── package.json
 │   ├── vite.config.js
 │   ├── tailwind.config.js
 │   └── postcss.config.js
 │
+├── .gitignore                   # Comprehensive ignore file
 └── README.md
 ```
 
@@ -388,6 +496,15 @@ ne3na3/
 - [BraTS Challenge](https://www.med.upenn.edu/cbica/brats/) - Brain Tumor Segmentation
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
 - [React](https://react.dev/) - UI library
+- [OpenAI](https://openai.com/) - GPT-4 for intelligent chatbot responses
+- [Framer Motion](https://www.framer.com/motion/) - Animation library
+
+---
+
+## 👥 Team
+
+- **Mohammad Emad** - Lead Developer
+- **Team Ne3Na3** - Medical AI Innovation
 
 ---
 

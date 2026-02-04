@@ -29,14 +29,14 @@ class InsightEngine:
         0: "Background",
         1: "NCR",  # Necrotic Core
         2: "ED",   # Peritumoral Edema
-        3: "ET"    # Enhancing Tumor
+        4: "ET"    # Enhancing Tumor (BraTS uses label 4, not 3)
     }
     
-    # Tumor regions
+    # Tumor regions (using BraTS label 4 for ET)
     REGIONS = {
-        "WT": [1, 2, 3],  # Whole Tumor
-        "TC": [1, 3],      # Tumor Core
-        "ET": [3]          # Enhancing Tumor
+        "WT": [1, 2, 4],  # Whole Tumor = NCR + ED + ET
+        "TC": [1, 4],      # Tumor Core = NCR + ET
+        "ET": [4]          # Enhancing Tumor
     }
     
     def __init__(self, voxel_spacing: Tuple[float, float, float] = (1.0, 1.0, 1.0)):
@@ -198,7 +198,7 @@ class InsightEngine:
             total = sum(importance.values())
             importance = {k: v / total for k, v in importance.items()}
         
-        return {k: round(v * 100, 1) for k, v in importance.items()}
+        return {k: round(float(v) * 100, 1) for k, v in importance.items()}
     
     def generate_insights(
         self,

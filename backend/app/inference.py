@@ -97,27 +97,18 @@ class InferenceEngine:
         - 0: Background
         - 1: NCR (Necrotic Core) - part of TC
         - 2: ED (Edema) - part of WT only
-        - 3: ET (Enhancing Tumor) - part of TC
+        - 4: ET (Enhancing Tumor) - part of TC
         
         Regions:
-        - WT = NCR + ED + ET (labels 1, 2, 3)
-        - TC = NCR + ET (labels 1, 3)
-        - ET = ET only (label 3)
+        - WT = NCR + ED + ET (labels 1, 2, 4)
+        - TC = NCR + ET (labels 1, 4)
+        - ET = ET only (label 4)
         """
-        seg = segmentation.clone()
-        
-        # Get predictions (argmax over channels)
-        if seg.dim() == 5:  # [B, C, D, H, W]
-            pred = torch.argmax(seg, dim=1)  # [B, D, H, W]
-        else:
-            pred = seg
-        
-        # Enforce: Any ET (3) that's outside WT should become WT
-        # Enforce: Any NCR (1) that's outside WT should become WT
-        # Practically, ensure tumor regions are consistent
+        # Input is already in BraTS label format [B, D, H, W] or [D, H, W]
+        pred = segmentation.clone()
         
         # ET can only exist where there's tumor (not background)
-        et_mask = (pred == 3)
+        et_mask = (pred == 4)
         ncr_mask = (pred == 1)
         ed_mask = (pred == 2)
         
@@ -139,7 +130,8 @@ class InferenceEngine:
         self,
         inputs: torch.Tensor,
         use_tta: bool = True,
-        enforce_consistency: bool = True
+        enforce_consistency: bool = True,
+        brain_mask: Optional[torch.Tensor] = None
     ) -> Dict[str, Any]:
         """
         Run full inference pipeline
@@ -151,8 +143,8 @@ class InferenceEngine:
             
         Returns:
             Dictionary containing:
-            - segmentation: Final segmentation mask
-            - probabilities: Softmax probabilities for each class
+            - segmentation: Final segmentation mask with BraTS labels (0=BG, 1=NCR, 2=ED, 4=ET)
+            - probabilities: Softmax probabilities for each class channel (NCR, ED, ET)
             - attention_maps: Attention maps from decoder blocks
         """
         inputs = inputs.to(self.device)
@@ -166,15 +158,35 @@ class InferenceEngine:
             with torch.no_grad():
                 logits = self._sliding_window_inference(inputs)
         
-        # Compute probabilities
-        probabilities = F.softmax(logits, dim=1)
-        
-        # Get segmentation
-        segmentation = torch.argmax(probabilities, dim=1)
+        # Model outputs 3 channels representing EXCLUSIVE classes:
+        # Channel 0: NCR (label 1)
+        # Channel 1: ED  (label 2)
+        # Channel 2: ET  (label 4)
+        # Use SOFTMAX since classes are mutually exclusive
+        probabilities = torch.softmax(logits, dim=1)  # [B, 3, D, H, W]
+
+        # Argmax to get class index per voxel (0,1,2)
+        class_map = torch.argmax(probabilities, dim=1)  # [B, D, H, W]
+        max_prob = torch.max(probabilities, dim=1).values
+
+        # Brain mask from inputs if not provided: any modality > 0
+        if brain_mask is None:
+            brain_mask = (inputs > 0).any(dim=1)
+
+        # Map class indices to BraTS labels: 0->1 (NCR), 1->2 (ED), 2->4 (ET)
+        segmentation = torch.zeros_like(class_map, dtype=torch.long)
+        segmentation[class_map == 0] = 1
+        segmentation[class_map == 1] = 2
+        segmentation[class_map == 2] = 4
+
+        # Apply background mask: low confidence or outside brain
+        confidence_threshold = 0.5
+        background_mask = (max_prob < confidence_threshold) | (~brain_mask)
+        segmentation[background_mask] = 0
         
         # Enforce anatomical consistency
         if enforce_consistency:
-            segmentation = self._enforce_anatomical_consistency(probabilities)
+            segmentation = self._enforce_anatomical_consistency(segmentation)
         
         # Get attention maps
         attention_maps = self.model.get_attention_maps()
@@ -192,7 +204,8 @@ class InferenceEngine:
         t1ce: np.ndarray,
         t2: np.ndarray,
         flair: np.ndarray,
-        use_tta: bool = True
+        use_tta: bool = True,
+        enforce_consistency: bool = True
     ) -> Dict[str, Any]:
         """
         Run inference from NIfTI arrays
@@ -209,6 +222,8 @@ class InferenceEngine:
         """
         # Stack modalities: [D, H, W] -> [4, D, H, W]
         stacked = np.stack([t1, t1ce, t2, flair], axis=0)
+        # Brain mask from raw inputs (before normalization)
+        brain_mask = (stacked > 0).any(axis=0)
         
         # Normalize each modality
         stacked = self._normalize(stacked)
@@ -216,7 +231,12 @@ class InferenceEngine:
         # Add batch dimension: [1, 4, D, H, W]
         inputs = torch.from_numpy(stacked).unsqueeze(0).float()
         
-        return self.predict(inputs, use_tta=use_tta)
+        return self.predict(
+            inputs,
+            use_tta=use_tta,
+            enforce_consistency=enforce_consistency,
+            brain_mask=torch.from_numpy(brain_mask).unsqueeze(0).to(self.device)
+        )
     
     def _normalize(self, data: np.ndarray) -> np.ndarray:
         """Z-score normalization per modality with brain mask"""

@@ -61,6 +61,7 @@ export const getModelInfo = async () => {
  * @param {File} t1ce - T1-contrast enhanced MRI file
  * @param {File} t2 - T2-weighted MRI file
  * @param {File} flair - FLAIR MRI file
+ * @param {File|null} groundTruth - Optional ground truth segmentation file
  * @param {boolean} useTTA - Apply Test-Time Augmentation
  * @param {boolean} enforceConsistency - Enforce anatomical consistency
  * @param {function} onProgress - Progress callback
@@ -70,6 +71,7 @@ export const runSegmentation = async (
   t1ce,
   t2,
   flair,
+  groundTruth = null,
   useTTA = true,
   enforceConsistency = true,
   onProgress = null
@@ -79,6 +81,9 @@ export const runSegmentation = async (
   formData.append('t1ce', t1ce);
   formData.append('t2', t2);
   formData.append('flair', flair);
+  if (groundTruth) {
+    formData.append('ground_truth', groundTruth);
+  }
   formData.append('use_tta', useTTA);
   formData.append('enforce_consistency', enforceConsistency);
 
@@ -163,10 +168,10 @@ export const getSystemPrompt = async () => {
  * @param {string} modality - MRI modality (t1, t1ce, t2, flair)
  * @param {number} downsample - Downsampling factor (1=original, 2=half, etc.)
  */
-export const getMRIVolume = async (modality = 't1ce', downsample = 2) => {
+export const getMRIVolume = async (modality = 't1ce', downsample = 4) => {
   const response = await api.get('/api/volume/mri', {
     params: { modality, downsample },
-    timeout: 60000, // 60 second timeout for large volumes
+    timeout: 120000, // 120 second timeout for large volumes
   });
   return response.data;
 };
@@ -175,10 +180,10 @@ export const getMRIVolume = async (modality = 't1ce', downsample = 2) => {
  * Get segmentation volume data for 3D visualization
  * @param {number} downsample - Downsampling factor
  */
-export const getSegmentationVolume = async (downsample = 2) => {
+export const getSegmentationVolume = async (downsample = 4) => {
   const response = await api.get('/api/volume/segmentation', {
     params: { downsample },
-    timeout: 60000,
+    timeout: 120000,
   });
   return response.data;
 };

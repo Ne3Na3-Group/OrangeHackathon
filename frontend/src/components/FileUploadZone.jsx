@@ -42,7 +42,7 @@ const FileUploadZone = ({ files, setFiles, onAnalyze, isProcessing }) => {
     });
   };
 
-  const allFilesUploaded = MODALITIES.every(m => files[m.id]);
+  const allFilesUploaded = MODALITIES.filter(m => !m.optional).every(m => files[m.id]);
 
   return (
     <div className="space-y-6">
@@ -65,14 +65,14 @@ const FileUploadZone = ({ files, setFiles, onAnalyze, isProcessing }) => {
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-gray-400 font-medium">
-              {Object.keys(files).length}/4
+              {MODALITIES.filter(m => !m.optional && files[m.id]).length}/4
             </span>
           </div>
           <div className="w-28 h-2 bg-gray-800/50 rounded-full overflow-hidden border border-gray-700/50">
             <motion.div 
               className="h-full bg-gradient-to-r from-ne3na3-primary via-ne3na3-neon to-ne3na3-primary"
               initial={{ width: 0 }}
-              animate={{ width: `${(Object.keys(files).length / 4) * 100}%` }}
+              animate={{ width: `${(MODALITIES.filter(m => !m.optional && files[m.id]).length / 4) * 100}%` }}
               transition={{ duration: 0.5, ease: "easeOut" }}
               style={{ backgroundSize: '200% 100%' }}
             />

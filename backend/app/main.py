@@ -149,7 +149,9 @@ async def segment_brain_mri(
     t2: UploadFile = File(..., description="T2-weighted MRI (NIfTI)"),
     flair: UploadFile = File(..., description="FLAIR MRI (NIfTI)"),
     use_tta: bool = Form(default=True),
-    enforce_consistency: bool = Form(default=True)
+    enforce_consistency: bool = Form(default=True),
+    include_mask: bool = Form(default=False),
+    mask_downsample: int = Form(default=1)
 ):
     """
     Process 4 NIfTI MRI files and return multi-class segmentation
@@ -158,7 +160,7 @@ async def segment_brain_mri(
     - 0: Background
     - 1: NCR (Necrotic Core)
     - 2: ED (Peritumoral Edema)
-    - 3: ET (Enhancing Tumor)
+    - 4: ET (Enhancing Tumor)
     """
     global _current_insights, _current_segmentation
     
@@ -222,10 +224,14 @@ async def segment_brain_mri(
             t1ce=modalities["t1ce"],
             t2=modalities["t2"],
             flair=modalities["flair"],
-            use_tta=use_tta
+            use_tta=use_tta,
+            enforce_consistency=enforce_consistency
         )
         
         segmentation = results["segmentation"]
+        # Remove batch dimension if present (inference returns [1, D, H, W])
+        if segmentation.ndim == 4 and segmentation.shape[0] == 1:
+            segmentation = segmentation[0]
         _current_segmentation = segmentation
         
         # Generate insights
@@ -243,12 +249,24 @@ async def segment_brain_mri(
         
         processing_time = time.time() - start_time
         
+        mask_values = None
+        mask_shape = list(segmentation.shape)
+        downsample_factor = max(1, int(mask_downsample))
+        if include_mask:
+            mask_volume = segmentation
+            if downsample_factor > 1:
+                mask_volume = mask_volume[::downsample_factor, ::downsample_factor, ::downsample_factor]
+                mask_shape = list(mask_volume.shape)
+            mask_values = mask_volume.astype(np.int32).flatten().tolist()
+
         return SegmentationResponse(
             success=True,
             message="Segmentation completed successfully",
             processing_time_seconds=round(processing_time, 2),
             insights=insights,
-            segmentation_shape=list(segmentation.shape)
+            segmentation_shape=mask_shape,
+            segmentation_values=mask_values,
+            mask_downsample=downsample_factor if include_mask else None
         )
         
     except Exception as e:
@@ -281,7 +299,7 @@ async def get_mri_volume(
         )
     
     # Get the volume and downsample for transfer
-    volume = _current_mri[modality]
+    volume = _current_mri[modality].copy()
     
     # Downsample to reduce data size
     if downsample > 1:
@@ -290,16 +308,17 @@ async def get_mri_volume(
     # Normalize to 0-1 range
     vmin, vmax = float(volume.min()), float(volume.max())
     if vmax > vmin:
-        volume = (volume - vmin) / (vmax - vmin)
+        volume = ((volume - vmin) / (vmax - vmin)).astype(np.float32)
     else:
-        volume = np.zeros_like(volume)
+        volume = np.zeros_like(volume, dtype=np.float32)
     
-    # Convert to list for JSON serialization (ensure native Python types)
+    # Convert to list for JSON serialization (use tolist() for speed)
+    # Ensure all values are native Python types, not numpy types
     shape = [int(s) for s in volume.shape]
     voxel_spacing = [float(v) for v in _current_voxel_spacing] if _current_voxel_spacing else [1.0, 1.0, 1.0]
     
-    # Convert numpy array to native Python floats
-    values = [float(v) for v in volume.flatten()]
+    # Use numpy's built-in tolist() which converts to native Python types
+    values = volume.flatten().tolist()
     
     return {
         "modality": modality,
@@ -324,15 +343,20 @@ async def get_segmentation_volume(downsample: int = 2):
             detail="No segmentation available. Please run segmentation first."
         )
     
+    # Get volume and ensure it's 3D (remove batch dim if present)
+    volume = _current_segmentation.copy()
+    if volume.ndim == 4 and volume.shape[0] == 1:
+        volume = volume[0]
+    
     # Downsample to reduce data size
-    volume = _current_segmentation
     if downsample > 1:
         volume = volume[::downsample, ::downsample, ::downsample]
     
-    # Convert to native Python types
+    # Convert to native Python types using tolist() for speed
+    # Ensure all values are native Python types, not numpy types
     shape = [int(s) for s in volume.shape]
     voxel_spacing = [float(v) for v in _current_voxel_spacing] if _current_voxel_spacing else [1.0, 1.0, 1.0]
-    values = [int(v) for v in volume.flatten()]
+    values = volume.flatten().astype(np.int32).tolist()
     
     return {
         "shape": shape,
@@ -342,7 +366,7 @@ async def get_segmentation_volume(downsample: int = 2):
             "0": "Background",
             "1": "NCR (Necrotic Core)",
             "2": "ED (Edema)",
-            "3": "ET (Enhancing Tumor)"
+            "4": "ET (Enhancing Tumor)"
         },
         "values": values
     }
@@ -395,7 +419,8 @@ async def get_volume_slice(
     if vmax > vmin:
         mri_slice = (mri_slice - vmin) / (vmax - vmin)
     
-    # Convert to native Python types
+    # Convert to native Python types using fast tolist()
+    # Ensure all values are native Python types, not numpy types
     response = {
         "axis": axis,
         "slice_idx": int(slice_idx),
@@ -405,11 +430,11 @@ async def get_volume_slice(
             "sagittal": int(volume.shape[2]),
             "coronal": int(volume.shape[1])
         },
-        "mri_values": [float(v) for v in mri_slice.flatten()]
+        "mri_values": mri_slice.flatten().astype(np.float32).tolist()
     }
     
     if include_segmentation and seg_slice is not None:
-        response["segmentation_values"] = [int(v) for v in seg_slice.flatten()]
+        response["segmentation_values"] = seg_slice.flatten().astype(np.int32).tolist()
     
     return response
 
@@ -468,7 +493,8 @@ async def run_demo_analysis():
     ncr_mask = (tumor_dist >= 10) & (tumor_dist < 16) & brain_mask  # Necrotic
     ed_mask = (tumor_dist >= 16) & (tumor_dist < 28) & brain_mask  # Edema
     
-    segmentation[et_mask] = 3
+    # BraTS labels: 1=NCR, 2=ED, 4=ET
+    segmentation[et_mask] = 4
     segmentation[ncr_mask] = 1
     segmentation[ed_mask] = 2
     
@@ -537,6 +563,166 @@ async def clear_chat_history():
     safe_bot = get_safe_bot()
     safe_bot.clear_history()
     return {"message": "Chat history cleared"}
+
+
+def convert_numpy_types(obj):
+    """Recursively convert numpy types to native Python types for JSON serialization"""
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_numpy_types(item) for item in obj)
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+
+
+@app.post("/api/load-test")
+async def load_test_data(test_folder: str = "Test1", run_inference: bool = True):
+    """
+    Load test data from Test1 or Test2 folder and optionally run inference
+    
+    Args:
+        test_folder: Which test folder to load (Test1 or Test2)
+        run_inference: Whether to run model inference (True) or just load ground truth (False)
+    """
+    global _current_insights, _current_segmentation, _current_mri, _current_voxel_spacing
+    
+    # Determine the test data path
+    base_path = Path(__file__).parent.parent.parent  # Go up to ne3na3 folder
+    test_path = base_path / test_folder
+    
+    if not test_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Test folder not found: {test_path}"
+        )
+    
+    logger.info(f"Loading test data from: {test_path}")
+    
+    try:
+        # Find the NIfTI files
+        nii_files = list(test_path.glob("*.nii")) + list(test_path.glob("*.nii.gz"))
+        
+        if len(nii_files) < 4:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Expected at least 4 NIfTI files, found {len(nii_files)}"
+            )
+        
+        # Load each modality
+        modalities = {}
+        ground_truth = None
+        voxel_spacing = None
+        
+        for nii_file in nii_files:
+            filename = nii_file.name.lower()
+            nii = nib.load(str(nii_file))
+            data = nii.get_fdata().astype(np.float32)
+            
+            if voxel_spacing is None:
+                voxel_spacing = tuple(nii.header.get_zooms()[:3])
+            
+            if "flair" in filename:
+                modalities["flair"] = data
+                logger.info(f"Loaded FLAIR: {data.shape}")
+            elif "t1ce" in filename:
+                modalities["t1ce"] = data
+                logger.info(f"Loaded T1ce: {data.shape}")
+            elif "t1" in filename and "t1ce" not in filename:
+                modalities["t1"] = data
+                logger.info(f"Loaded T1: {data.shape}")
+            elif "t2" in filename:
+                modalities["t2"] = data
+                logger.info(f"Loaded T2: {data.shape}")
+            elif "seg" in filename or "label" in filename:
+                ground_truth = data.astype(np.int64)
+                logger.info(f"Loaded Ground Truth: {data.shape}, unique labels: {np.unique(ground_truth)}")
+        
+        # Check we have all modalities
+        required = ["t1", "t1ce", "t2", "flair"]
+        missing = [m for m in required if m not in modalities]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing modalities: {missing}"
+            )
+        
+        # Store MRI data
+        _current_mri = modalities
+        _current_voxel_spacing = voxel_spacing
+        
+        if run_inference:
+            # Run model inference
+            logger.info("Running model inference...")
+            inference_engine = get_inference_engine()
+            results = inference_engine.predict_from_nifti(
+                t1=modalities["t1"],
+                t1ce=modalities["t1ce"],
+                t2=modalities["t2"],
+                flair=modalities["flair"],
+                use_tta=False  # Faster for testing
+            )
+            
+            segmentation = results["segmentation"]
+            # Remove batch dimension if present
+            if segmentation.ndim == 4 and segmentation.shape[0] == 1:
+                segmentation = segmentation[0]
+            _current_segmentation = segmentation
+            
+            logger.info(f"Inference complete. Segmentation shape: {segmentation.shape}")
+            logger.info(f"Unique labels in prediction: {np.unique(segmentation)}")
+        
+        elif ground_truth is not None:
+            # Use ground truth segmentation
+            _current_segmentation = ground_truth
+            logger.info(f"Using ground truth segmentation. Shape: {ground_truth.shape}")
+            logger.info(f"Unique labels: {np.unique(ground_truth)}")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="No ground truth found and inference disabled"
+            )
+        
+        # Generate insights
+        insight_engine = get_insight_engine()
+        insights = insight_engine.generate_insights(
+            segmentation=_current_segmentation,
+            voxel_spacing=voxel_spacing or (1.0, 1.0, 1.0)
+        )
+        _current_insights = insights
+        
+        # Update chatbot
+        safe_bot = get_safe_bot()
+        safe_bot.set_insights(insights)
+        
+        # Convert all numpy types to native Python types for JSON serialization
+        response = convert_numpy_types({
+            "success": True,
+            "message": f"Loaded {test_folder} data successfully",
+            "used_inference": run_inference,
+            "mri_shape": list(modalities["t1"].shape),
+            "segmentation_shape": list(_current_segmentation.shape),
+            "unique_labels": [int(x) for x in np.unique(_current_segmentation)],
+            "voxel_spacing": [float(v) for v in voxel_spacing] if voxel_spacing else [1.0, 1.0, 1.0],
+            "insights": insights
+        })
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading test data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/chat/system-prompt")
