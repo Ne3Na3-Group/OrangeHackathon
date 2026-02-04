@@ -23,6 +23,8 @@
 - [Recent Updates](#-recent-updates)
 - [Installation](#-installation)
 - [Usage](#-usage)
+- [Docker](#-docker)
+- [Environment Variables](#-environment-variables)
 - [API Reference](#-api-reference)
 - [3D Visualization](#-3d-visualization)
 - [Safety & Ethics](#-safety--ethics)
@@ -81,31 +83,33 @@
 ## 🏗 Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Ne3Na3 SYSTEM ARCHITECTURE                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐  │
-│  │   React Frontend │◄────►│  FastAPI Backend │◄────►│  AttUnet Model  │  │
-│  │   (Port 3000)    │ HTTP │   (Port 8000)    │      │  (PyTorch)      │  │
-│  └────────┬────────┘      └────────┬────────┘      └────────┬────────┘  │
-│           │                        │                        │           │
-│  ┌────────▼────────┐      ┌────────▼────────┐      ┌────────▼────────┐  │
+┌───────────────────────────────────────────────────────────────────────────┐
+│                          Ne3Na3 SYSTEM ARCHITECTURE                       │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐   │
+│  │  React Frontend │◄────►│  FastAPI Backend │◄────►│  AttUnet Model  │   │
+│  │(Port 5173/3000) │ HTTP │   (Port 8000)    │      │  (PyTorch)      │   │
+│  └────────┬────────┘      └────────┬─────────┘      └────────┬────────┘   │
+│           │                        │                         │            │
+│  ┌────────▼────────┐      ┌────────▼─────────┐      ┌────────▼─────────┐  │
 │  │ • File Upload   │      │ • /api/segment   │      │ • 3D Conv Blocks │  │
-│  │ • Insights Panel│      │ • /api/insights  │      │ • Attention Gates│  │
-│  │ • Safe-Bot Chat │      │ • /api/chat      │      │ • Sliding Window │  │
-│  │ • Explainability│      │ • /api/attention │      │ • TTA Processing │  │
-│  └─────────────────┘      └─────────────────┘      └─────────────────┘  │
-│                                                                          │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │                         INFERENCE PIPELINE                         │   │
-│  │                                                                    │   │
-│  │   Input (4 NIfTI) ──► Normalize ──► Sliding Window (96³) ──►      │   │
-│  │   TTA (Flips) ──► AttUnet ──► Anatomical Consistency ──► Output   │   │
-│  │                                                                    │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
+│  │ • 3D Viewer     │      │ • /api/insights  │      │ • Attention Gates│  │
+│  │ • Insights Panel│      │ • /api/volume/*  │      │ • Sliding Window │  │
+│  │ • Safe-Bot Chat │      │ • /api/chat(hist)│      │ • TTA Processing │  │
+│  │ • Explainability│      │ • /api/demo      │      │ • Consistency    │  │
+│  │ • Processing UX │      │ • /api/attention │      │ • Attention Maps │  │
+│  └─────────────────┘      └──────────────────┘      └──────────────────┘  │
+│                                                                           │
+│  ┌──────────────────────────────────────────────────────────────────┐     │
+│  │                         INFERENCE PIPELINE                       │     │
+│  │                                                                  │     │
+│  │   Input (4 NIfTI) ──► Normalize ──► Sliding Window (96³) ──►     │     │
+│  │   TTA (Flips) ──► AttUnet ──► Anatomical Consistency ──► Output  │     │
+│  │                                                                  │     │
+│  └──────────────────────────────────────────────────────────────────┘     │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### AttUnet Architecture
@@ -229,6 +233,18 @@ cd ne3na3/frontend
 
 # Install dependencies
 npm install
+
+# Optional: copy frontend env template
+cp .env.example .env
+
+```
+
+### One-Command Dev Setup
+
+Use the included script to set up and run both servers:
+
+```bash
+./start-dev.sh
 ```
 
 ---
@@ -262,24 +278,37 @@ npm run preview
 
 ### Access the Application
 
-- **Frontend**: http://localhost:3000
+- **Frontend (Vite dev)**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/docs
 
-### Environment Variables
+## 🐳 Docker
 
-Create a `.env` file in the `backend/` directory:
+Run the full stack with Docker Compose:
 
 ```bash
-# OpenAI API Key (optional - enables AI-powered chatbot)
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Server Configuration (optional)
-HOST=0.0.0.0
-PORT=8000
+docker compose up --build
 ```
 
-Without `OPENAI_API_KEY`, the SafeBot will use rule-based responses.
+- **Frontend (Docker)**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+
+---
+
+## 🔐 Environment Variables
+
+Backend template: backend/.env.example
+
+Frontend template: frontend/.env.example
+
+Key variables:
+
+- `OPENAI_API_KEY` (optional): Enables OpenAI Safe-Bot responses
+- `OPENAI_MODEL` (optional): Defaults to `gpt-4.1-nano`
+- `MODEL_DIR` / `MODEL_FILENAME`: Model weights location
+- `VITE_API_URL`: Frontend API base URL
+
+Without `OPENAI_API_KEY`, the SafeBot uses rule-based responses.
 
 ---
 
@@ -301,6 +330,8 @@ Content-Type: multipart/form-data
 - flair: NIfTI file
 - use_tta: boolean (default: true)
 - enforce_consistency: boolean (default: true)
+- include_mask: boolean (default: false)
+- mask_downsample: int (default: 1)
 ```
 
 ### Get Insights
@@ -318,9 +349,35 @@ Content-Type: application/json
 }
 ```
 
+### Chat History
+```http
+GET /api/chat/history
+DELETE /api/chat/history
+```
+
+### Chat System Prompt (Reference)
+```http
+GET /api/chat/system-prompt
+```
+
 ### Run Demo
 ```http
 POST /api/demo
+```
+
+### Model Info
+```http
+GET /api/model/info
+```
+
+### Attention Maps (Explainability)
+```http
+GET /api/attention
+```
+
+### Load Test Dataset
+```http
+POST /api/load-test?test_folder=Test1&run_inference=true
 ```
 
 ### Volume Endpoints (3D Visualization)
@@ -339,6 +396,7 @@ GET /api/volume/segmentation?downsample=2
 GET /api/volume/slice?axis=axial&slice_idx=50&modality=t1ce
 # Get single 2D slice
 # axis: axial, sagittal, coronal
+# include_segmentation: true|false
 ```
 
 ---
@@ -442,6 +500,7 @@ The 3D Visualization page provides interactive exploration of brain MRI volumes 
 
 ```
 ne3na3/
+├── AttUnet_2DResNet/           # Research/legacy architecture experiments
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
@@ -455,10 +514,11 @@ ne3na3/
 │   │       ├── attunet.py       # AttUnet architecture
 │   │       └── model_loader.py  # Weight loading logic
 │   ├── model_weights/           # Place .pth files here
-│   ├── .env.example             # Environment variables template
+│   ├── .env.example             # Backend environment template
 │   └── requirements.txt
 │
 ├── frontend/
+│   ├── .env.example             # Frontend environment template
 │   ├── public/
 │   │   └── ne3na3-icon.svg
 │   ├── src/
@@ -472,10 +532,6 @@ ne3na3/
 │   │   │   ├── Visualization3D.jsx  # 3D slice viewer
 │   │   │   ├── ProcessingOverlay.jsx
 │   │   │   └── ExplainabilityPanel.jsx
-│   │   ├── pages/
-│   │   │   ├── Home.jsx
-│   │   │   ├── Visualization3DPage.jsx
-│   │   │   └── About.jsx
 │   │   └── services/
 │   │       └── api.js           # API client with volume endpoints
 │   ├── index.html
@@ -484,6 +540,8 @@ ne3na3/
 │   ├── tailwind.config.js
 │   └── postcss.config.js
 │
+├── docker-compose.yml
+├── start-dev.sh
 ├── .gitignore                   # Comprehensive ignore file
 └── README.md
 ```
