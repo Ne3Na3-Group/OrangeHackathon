@@ -503,8 +503,11 @@ ne3na3/
 
 ## 👥 Team
 
-- **Mohammad Emad** - Lead Developer
-- **Team Ne3Na3** - Medical AI Innovation
+- **Ahmed Samir** - ahmedsamir1598@gmail.com
+- **Mohammad Emad** - memad.20003@gmail.com
+- **Yosry Ramadan** - ramadanyousre@gmail.com  
+- **Loay Medhat** - loaypre2510@gmail.com
+- **Yussuf Yasser** - ywsfyasr68@gmail.com
 
 ---
 
