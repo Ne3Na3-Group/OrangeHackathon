@@ -4,7 +4,6 @@ import {
   Activity, 
   Box, 
   Target, 
-  TrendingUp, 
   Layers,
   Maximize2,
   AlertTriangle,
@@ -27,7 +26,7 @@ const InsightsPanel = ({ insights }) => {
     );
   }
 
-  const { summary, volumes, regions, asymmetry, modality_importance } = insights;
+  const { summary, volumes, regions, modality_importance } = insights;
 
   // Format volume for display
   const formatVolume = (vol) => {
@@ -191,49 +190,6 @@ const InsightsPanel = ({ insights }) => {
           </div>
         </motion.div>
       )}
-
-      {/* Asymmetry */}
-      <motion.div 
-        className="p-5 rounded-2xl bg-gray-800/30 border border-gray-700/50 backdrop-blur-xl"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-3">
-          <div className="p-2 bg-ne3na3-primary/20 rounded-xl border border-ne3na3-primary/30">
-            <TrendingUp className="w-4 h-4 text-ne3na3-neon" />
-          </div>
-          Asymmetry Scores
-        </h3>
-        <div className="space-y-4">
-          {Object.entries(asymmetry).map(([region, score], index) => (
-            <motion.div 
-              key={region} 
-              className="space-y-2"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-            >
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400 font-medium">{region}</span>
-                <span className={`font-mono font-bold ${score > 0.3 ? 'text-amber-400' : 'text-ne3na3-neon'}`}>
-                  {(score * 100).toFixed(1)}%
-                </span>
-              </div>
-              <div className="h-2 bg-gray-900/50 rounded-full overflow-hidden">
-                <motion.div 
-                  className={`h-full rounded-full ${score > 0.3 
-                    ? 'bg-gradient-to-r from-amber-500 to-orange-500' 
-                    : 'bg-gradient-to-r from-ne3na3-primary to-ne3na3-neon'
-                  }`}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${score * 100}%` }}
-                  transition={{ duration: 0.7, delay: index * 0.1 + 0.2 }}
-                />
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
 
       {/* Modality Importance */}
       <motion.div 

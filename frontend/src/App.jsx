@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Brain, 
   Activity, 
-  Eye, 
   Sparkles,
   Menu,
   X,
@@ -24,7 +23,6 @@ import {
   InsightsPanel,
   SafeBot,
   ProcessingOverlay,
-  ExplainabilityPanel,
   Visualization3D
 } from './components';
 
@@ -32,7 +30,6 @@ import {
   checkHealth, 
   runSegmentation, 
   runDemoAnalysis,
-  getAttentionMaps,
   getModelInfo
 } from './services/api';
 
@@ -41,7 +38,6 @@ const TABS = [
   { id: 'upload', label: 'Upload', icon: Brain, description: 'Upload MRI scans' },
   { id: 'visualize', label: '3D View', icon: Box, description: '3D visualization' },
   { id: 'insights', label: 'Insights', icon: Activity, description: 'View analysis' },
-  { id: 'explain', label: 'Explainability', icon: Eye, description: 'AI transparency' },
 ];
 
 // Floating Orb Component
@@ -122,7 +118,6 @@ function App() {
   const [activeTab, setActiveTab] = useState('upload');
   const [files, setFiles] = useState({});
   const [insights, setInsights] = useState(null);
-  const [attentionData, setAttentionData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingPhase, setProcessingPhase] = useState('upload');
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -184,13 +179,6 @@ function App() {
         setInsights(result.insights);
         setActiveTab('insights');
 
-        // Get attention maps
-        try {
-          const attention = await getAttentionMaps();
-          setAttentionData(attention);
-        } catch (e) {
-          console.warn('Could not fetch attention maps:', e);
-        }
       } else {
         setError(result.message || 'Segmentation failed');
       }
@@ -437,20 +425,6 @@ function App() {
                   </motion.div>
                 )}
 
-                {activeTab === 'explain' && (
-                  <motion.div
-                    key="explain"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <ExplainabilityPanel 
-                      attentionData={attentionData}
-                      modalityImportance={insights?.modality_importance}
-                    />
-                  </motion.div>
-                )}
               </AnimatePresence>
             </motion.div>
           </div>
@@ -538,20 +512,6 @@ function App() {
                       {insights.summary.total_tumor_volume_cm3.toFixed(1)}
                     </motion.p>
                     <p className="text-xs text-gray-500 mt-1">Total Vol (cm³)</p>
-                  </motion.div>
-                  <motion.div 
-                    className="card-metric text-center"
-                    whileHover={{ scale: 1.02 }}
-                  >
-                    <motion.p 
-                      className="text-3xl font-bold text-yellow-400"
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      transition={{ type: "spring", bounce: 0.4, delay: 0.1 }}
-                    >
-                      {(insights.asymmetry.WT * 100).toFixed(0)}%
-                    </motion.p>
-                    <p className="text-xs text-gray-500 mt-1">Asymmetry</p>
                   </motion.div>
                 </div>
               </motion.div>
