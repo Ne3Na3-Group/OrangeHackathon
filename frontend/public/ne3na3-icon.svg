@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00A676"/>
+      <stop offset="100%" style="stop-color:#00FFB3"/>
+    </linearGradient>
+  </defs>
+  <!-- Brain outline -->
+  <path d="M50 10 C25 10 15 35 15 50 C15 75 35 90 50 90 C65 90 85 75 85 50 C85 35 75 10 50 10" 
+        fill="none" stroke="url(#gradient)" stroke-width="3"/>
+  <!-- Brain folds -->
+  <path d="M30 40 Q40 30 50 40 Q60 50 70 40" fill="none" stroke="url(#gradient)" stroke-width="2"/>
+  <path d="M30 55 Q40 45 50 55 Q60 65 70 55" fill="none" stroke="url(#gradient)" stroke-width="2"/>
+  <path d="M35 70 Q45 60 55 70 Q65 80 75 70" fill="none" stroke="url(#gradient)" stroke-width="2"/>
+  <!-- Tumor highlight -->
+  <circle cx="55" cy="45" r="8" fill="#00FFB3" opacity="0.6"/>
+  <circle cx="55" cy="45" r="4" fill="#00FFB3"/>
+</svg>
